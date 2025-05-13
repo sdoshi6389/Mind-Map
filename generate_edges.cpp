@@ -164,11 +164,10 @@ json generate_edges_by_talent(const std::vector<entry>& entries) {
     result["nodes"] = json::array();
     result["edges"] = json::array();
 
-    std::map<int, std::vector<std::pair<entry, PixelPosition>>> talentMap;
-    std::map<std::string, PixelPosition> locationMap;
+    std::map<int, std::vector<entry>> talentMap;
     std::map<std::string, int> nameToId;
 
-    // Add root node
+    // root node, me
     result["nodes"].push_back({
         {"id", 0},
         {"name", "Sohil Doshi"},
@@ -181,19 +180,17 @@ json generate_edges_by_talent(const std::vector<entry>& entries) {
 
     for (const auto& e : entries) {
         int talent = std::stoi(e.talent.empty() ? "0" : e.talent);
-        double lat, lon;
-
-        if (!get_lat_lon(e.location, lat, lon)) {
-            lat = 82.8628; lon = 135;
-        }
-
-        PixelPosition pos = geo_to_scrollable_pixel(lat, lon, -90, 90, -180, 180, 4000, 1000);
-        talentMap[talent].push_back({e, pos});
-        locationMap[e.name] = pos;
+        talentMap[talent].push_back(e);
     }
 
+    // locations by layer
     for (int level = 10; level >= 1; --level) {
-        for (auto& [person, pos] : talentMap[level]) {
+        const auto& people = talentMap[level];
+        int spacing = 150;
+        int base_x = 1000 - (people.size() * spacing) / 2;
+
+        for (size_t i = 0; i < people.size(); ++i) {
+            const auto& person = people[i];
             int myId = next_id++;
             nameToId[person.name] = myId;
 
@@ -201,72 +198,61 @@ json generate_edges_by_talent(const std::vector<entry>& entries) {
                 {"id", myId},
                 {"name", person.name},
                 {"location", person.location},
-                {"x", pos.x},
-                {"y", pos.y}
+                {"x", base_x + static_cast<int>(i) * spacing},
+                {"y", (11 - level) * 120}
             });
         }
     }
 
-    // create red bidirectional edges for same location, same level
+    // red bidirectional edges for same location, same level
     for (int level = 10; level >= 1; --level) {
         const auto& people = talentMap[level];
         for (size_t i = 0; i < people.size(); ++i) {
             for (size_t j = i + 1; j < people.size(); ++j) {
-                const auto& [p1, _] = people[i];
-                const auto& [p2, __] = people[j];
-                if (p1.location == p2.location && p1.name != p2.name) {
-                    int id1 = nameToId[p1.name];
-                    int id2 = nameToId[p2.name];
-                    result["edges"].push_back({
-                        {"source", id1}, {"target", id2}, {"color", "red"}
-                    });
-                    result["edges"].push_back({
-                        {"source", id2}, {"target", id1}, {"color", "red"}
-                    });
+                if (people[i].location == people[j].location && people[i].name != people[j].name) {
+                    int id1 = nameToId[people[i].name];
+                    int id2 = nameToId[people[j].name];
+                    result["edges"].push_back({{"source", id1}, {"target", id2}, {"color", "red"}});
+                    result["edges"].push_back({{"source", id2}, {"target", id1}, {"color", "red"}});
                 }
             }
         }
     }
 
-    // create blue directional edges to higher level nodes
+    // blue directional edges to nearest higher-level node
     for (int level = 10; level >= 1; --level) {
-        for (auto& [person, pos] : talentMap[level]) {
+        const auto& people = talentMap[level];
+        for (const auto& person : people) {
             int myId = nameToId[person.name];
+            bool linked = false;
 
-            for (int hl = level + 1; hl <= 10; ++hl) {
+            for (int hl = level + 1; hl <= 10 && !linked; ++hl) {
                 if (!talentMap.count(hl)) continue;
 
-                double minDist = 1e9;
-                int closestId = -1;
-                for (auto& [higher, higherPos] : talentMap[hl]) {
-                    if (!nameToId.count(higher.name)) continue;
-                    int hid = nameToId[higher.name];
-                    double dx = pos.x - higherPos.x;
-                    double dy = pos.y - higherPos.y;
-                    double dist = dx * dx + dy * dy;
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestId = hid;
-                    }
-                }
-
-                if (closestId != -1) {
+                for (const auto& higher : talentMap[hl]) {
+                    if (higher.name == person.name) continue;
+                    int higherId = nameToId[higher.name];
                     result["edges"].push_back({
-                        {"source", closestId}, {"target", myId}, {"color", "blue"}
+                        {"source", higherId},
+                        {"target", myId},
+                        {"color", "blue"}
                     });
+                    linked = true;
                     break;
                 }
             }
 
-            if (level == 10) {
+            // if no higher level node, link to root
+            if (!linked && level == 10) {
                 result["edges"].push_back({
-                    {"source", 0}, {"target", myId}, {"color", "blue"}
+                    {"source", 0},
+                    {"target", myId},
+                    {"color", "blue"}
                 });
             }
         }
     }
 
-    std::cerr << "[DEBUG] Finished generate_edges_by_talent" << std::endl;
     std::cout << result.dump(2) << std::endl;
     return result;
 }
@@ -277,11 +263,10 @@ json generate_edges_by_closeness(const std::vector<entry>& entries) {
     result["nodes"] = json::array();
     result["edges"] = json::array();
 
-    std::map<int, std::vector<std::pair<entry, PixelPosition>>> closenessMap;
-    std::map<std::string, PixelPosition> locationMap;
+    std::map<int, std::vector<entry>> closenessMap;
     std::map<std::string, int> nameToId;
 
-    // Add root node
+    // root node, me
     result["nodes"].push_back({
         {"id", 0},
         {"name", "Sohil Doshi"},
@@ -294,19 +279,17 @@ json generate_edges_by_closeness(const std::vector<entry>& entries) {
 
     for (const auto& e : entries) {
         int close = std::stoi(e.closeness.empty() ? "0" : e.closeness);
-        double lat, lon;
-
-        if (!get_lat_lon(e.location, lat, lon)) {
-            lat = 82.8628; lon = 135;
-        }
-
-        PixelPosition pos = geo_to_scrollable_pixel(lat, lon, -90, 90, -180, 180, 4000, 1000);
-        closenessMap[close].push_back({e, pos});
-        locationMap[e.name] = pos;
+        closenessMap[close].push_back(e);
     }
 
+    // each closeness level goes to a different vertical layer
     for (int level = 10; level >= 1; --level) {
-        for (auto& [person, pos] : closenessMap[level]) {
+        const auto& people = closenessMap[level];
+        int spacing = 150;
+        int base_x = 1000 - (people.size() * spacing) / 2;
+
+        for (size_t i = 0; i < people.size(); ++i) {
+            const auto& person = people[i];
             int myId = next_id++;
             nameToId[person.name] = myId;
 
@@ -314,72 +297,61 @@ json generate_edges_by_closeness(const std::vector<entry>& entries) {
                 {"id", myId},
                 {"name", person.name},
                 {"location", person.location},
-                {"x", pos.x},
-                {"y", pos.y}
+                {"x", base_x + static_cast<int>(i) * spacing},
+                {"y", (11 - level) * 120}
             });
         }
     }
 
-    // Create red bidirectional edges for same location, same level
+    // red bidirectional edges for same location
     for (int level = 10; level >= 1; --level) {
         const auto& people = closenessMap[level];
         for (size_t i = 0; i < people.size(); ++i) {
             for (size_t j = i + 1; j < people.size(); ++j) {
-                const auto& [p1, _] = people[i];
-                const auto& [p2, __] = people[j];
-                if (p1.location == p2.location && p1.name != p2.name) {
-                    int id1 = nameToId[p1.name];
-                    int id2 = nameToId[p2.name];
-                    result["edges"].push_back({
-                        {"source", id1}, {"target", id2}, {"color", "red"}
-                    });
-                    result["edges"].push_back({
-                        {"source", id2}, {"target", id1}, {"color", "red"}
-                    });
+                if (people[i].location == people[j].location && people[i].name != people[j].name) {
+                    int id1 = nameToId[people[i].name];
+                    int id2 = nameToId[people[j].name];
+                    result["edges"].push_back({{"source", id1}, {"target", id2}, {"color", "red"}});
+                    result["edges"].push_back({{"source", id2}, {"target", id1}, {"color", "red"}});
                 }
             }
         }
     }
 
-    // Create blue directional edges to higher level nodes
+    // blue directional edges to nearest higher-level node
     for (int level = 10; level >= 1; --level) {
-        for (auto& [person, pos] : closenessMap[level]) {
+        const auto& people = closenessMap[level];
+        for (const auto& person : people) {
             int myId = nameToId[person.name];
+            bool linked = false;
 
-            for (int hl = level + 1; hl <= 10; ++hl) {
+            for (int hl = level + 1; hl <= 10 && !linked; ++hl) {
                 if (!closenessMap.count(hl)) continue;
 
-                double minDist = 1e9;
-                int closestId = -1;
-                for (auto& [higher, higherPos] : closenessMap[hl]) {
-                    if (!nameToId.count(higher.name)) continue;
-                    int hid = nameToId[higher.name];
-                    double dx = pos.x - higherPos.x;
-                    double dy = pos.y - higherPos.y;
-                    double dist = dx * dx + dy * dy;
-                    if (dist < minDist) {
-                        minDist = dist;
-                        closestId = hid;
-                    }
-                }
-
-                if (closestId != -1) {
+                for (const auto& higher : closenessMap[hl]) {
+                    if (higher.name == person.name) continue;
+                    int higherId = nameToId[higher.name];
                     result["edges"].push_back({
-                        {"source", closestId}, {"target", myId}, {"color", "blue"}
+                        {"source", higherId},
+                        {"target", myId},
+                        {"color", "blue"}
                     });
+                    linked = true;
                     break;
                 }
             }
 
-            if (level == 10) {
+            // if no higher node, link to root
+            if (!linked && level == 10) {
                 result["edges"].push_back({
-                    {"source", 0}, {"target", myId}, {"color", "blue"}
+                    {"source", 0},
+                    {"target", myId},
+                    {"color", "blue"}
                 });
             }
         }
     }
 
-    std::cerr << "[DEBUG] Finished generate_edges_by_closeness" << std::endl;
     std::cout << result.dump(2) << std::endl;
     return result;
 }
