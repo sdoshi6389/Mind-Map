@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Contact Network</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      overflow: auto;
+    }
+
+    h1 {
+      margin: 0;
+      display: inline-block;
+    }
+
+    .controls {
+      float: right;
+      margin-top: 5px;
+    }
+
+    #graph {
+      width: 100%;
+      height: 2000px;
+      border: 1px solid #ccc;
+      background-color: #f9f9f9;
+    }
+
+    .node circle {
+      fill: #007bff;
+      r: 30;
+    }
+
+    .node text {
+      fill: white;
+      font-size: 14px;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+
+    .tooltip {
+      position: absolute;
+      background-color: #333;
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+  </style>
+</head>
+<body>
+  <div style="overflow: hidden;">
+    <h1>Contact Network</h1>
+    <div class="controls">
+      <label for="table-select">Compare by:</label>
+      <select id="table-select">
+        <option value="">-- Select Feature --</option>
+        <option value="location">Location</option>
+        <option value="current_company">Current Company</option>
+        <option value="previous_companies">Previous Companies</option>
+        <option value="industry">Industry</option>
+        <option value="interests">Interests</option>
+        <option value="college">College</option>
+        <option value="high_school">High School</option>
+        <option value="closeness">Closeness</option>
+        <option value="career_goals">Career/Professional Goals</option>
+        <option value="skills">Skills</option>
+        <option value="talent_rating">Talent Level</option>
+      </select>
+      <button onclick="resetZoom()">Reset View</button>
+    </div>
+    <h2>Add New Contact</h2>
+    <form id="contact-form">
+      <input name="name" placeholder="Name" required>
+      <input name="email" placeholder="Email">
+      <input name="phone" placeholder="Phone">
+      <input name="location" placeholder="Location">
+      <input name="current_company" placeholder="Current Company">
+      <input name="previous_companies" placeholder="Previous Companies">
+      <input name="industry" placeholder="Industry">
+      <input name="job_title" placeholder="Job Title">
+      <input name="relationship_type" placeholder="Relationship Type">
+      <input name="closeness" placeholder="Closeness">
+      <input name="reliability" placeholder="Reliability">
+      <input name="interests" placeholder="Interests">
+      <input name="college" placeholder="College">
+      <input name="high_school" placeholder="High School">
+      <input name="career_goals" placeholder="Career Goals">
+      <input name="skills" placeholder="Skills">
+      <input name="talent_rating" placeholder="Talent Rating">
+      <button type="submit">Add Contact</button>
+    </form>
+    <h2>Ask a Question About Your Network</h2>
+    <form id="question-form" style="margin-top: 10px;">
+      <input id="question-input" placeholder="Ask a question about your network..." style="width: 300px; padding: 6px;">
+      <button type="submit">Ask</button>
+    </form>
+    <p id="question-response" style="margin-top: 10px; font-style: italic;"></p>
+
+  </div>
+
+  <svg id="graph"></svg>
+  <div id="tooltip" class="tooltip"></div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    const svg = d3.select("#graph").attr("width", window.innerWidth).attr("height", 2000);
+    const zoomLayer = svg.append("g").attr("class", "zoom-layer");
+    const tooltip = d3.select("#tooltip");
+
+    let nodeGroup = null;
+    let edgeGroup = null;
+    let simulation = null;
+
+    svg.call(d3.zoom()
+      .scaleExtent([0.1, 10])
+      .on("zoom", event => zoomLayer.attr("transform", event.transform))
+    );
+
+    function resetZoom() {
+      svg.transition().duration(500).call(d3.zoom().transform, d3.zoomIdentity);
+    }
+
+    function getInitials(name) {
+      if (!name) return "";
+
+      const spaced = name.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+      return spaced
+        .split(/\s+/)
+        .filter(w => w.length > 0)
+        .map(w => w[0])
+        .join("")
+        .toUpperCase();
+    }
+
+
+    function drawGraph(data) {
+      if (!data.nodes || !Array.isArray(data.nodes)) {
+        console.error("[DRAW] Invalid or missing nodes:", data);
+        return;
+      }
+
+      zoomLayer.selectAll("*").remove();
+
+      const nodeMap = new Map();
+      data.nodes.forEach(d => nodeMap.set(d.id, d));
+
+      edgeGroup = zoomLayer.append("g").attr("class", "edges");
+      nodeGroup = zoomLayer.append("g").attr("class", "nodes");
+
+      simulation = d3.forceSimulation(data.nodes)
+        .force("center", d3.forceCenter(window.innerWidth / 2, 1000))
+        .force("collide", d3.forceCollide(50))
+        .force("charge", d3.forceManyBody().strength(-20))
+        .on("tick", ticked);
+
+      const defs = svg.append("defs");
+
+      defs.append("marker")
+        .attr("id", "arrow-blue")
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 30)
+        .attr("refY", 0)
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "blue");
+
+      defs.append("marker")
+        .attr("id", "arrow-red")
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 30)
+        .attr("refY", 0)
+        .attr("markerWidth", 6)
+        .attr("markerHeight", 6)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "red");
+
+      const isBidirectional = (src, tgt) =>
+        data.edges.some(e => e.source === tgt && e.target === src);
+
+      edgeGroup.selectAll("line")
+        .data(data.edges)
+        .enter()
+        .append("line")
+        .attr("stroke", d => isBidirectional(d.source, d.target) ? "red" : "blue")
+        .attr("stroke-width", 2)
+        .attr("marker-end", d => isBidirectional(d.source, d.target) ? "url(#arrow-red)" : "url(#arrow-blue)")
+        .on("mouseover", (event, d) => {
+          tooltip.style("opacity", 1).html(`<strong>College:</strong> ${d.label}`);
+        })
+        .on("mousemove", event => {
+          tooltip.style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 20) + "px");
+        })
+        .on("mouseout", () => {
+          tooltip.style("opacity", 0);
+        });
+
+
+      const node = nodeGroup.selectAll(".node")
+        .data(data.nodes)
+        .enter()
+        .append("g")
+        .attr("class", "node");
+
+      node.append("circle");
+
+      node.append("text")
+        .text(d => d.initials || getInitials(d.name || d.id));
+
+
+      node.on("mouseover", (event, d) => {
+        tooltip.style("opacity", 1).html(`
+          <strong>${d.name || d.id}</strong><br>
+          ${d.college ? `College: ${d.college}` : ""}
+        `);
+      }).on("mousemove", event => {
+        tooltip.style("left", (event.pageX + 10) + "px")
+              .style("top", (event.pageY - 20) + "px");
+      }).on("mouseout", () => {
+        tooltip.style("opacity", 0);
+      });
+
+      function ticked() {
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+        edgeGroup.selectAll("line")
+          .attr("x1", d => nodeMap.get(d.source).x)
+          .attr("y1", d => nodeMap.get(d.source).y)
+          .attr("x2", d => nodeMap.get(d.target).x)
+          .attr("y2", d => nodeMap.get(d.target).y);
+      }
+
+      setTimeout(() => simulation.stop(), 1000);
+    }
+
+    function jiggle() {
+      if (!simulation) return;
+      simulation.nodes().forEach(d => {
+        d.vx = (Math.random() - 0.5) * 10;
+        d.vy = (Math.random() - 0.5) * 10;
+      });
+      simulation.alpha(0.5).restart();
+      setTimeout(() => simulation.stop(), 1000);
+    }
+
+    window.addEventListener("keydown", event => {
+      const active = document.activeElement;
+      const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+      if (event.code === "Space" && !isTyping) {
+        event.preventDefault();
+        jiggle();
+      }
+    });
+
+    document.getElementById("table-select").addEventListener("change", function () {
+      const value = this.value;
+      fetch(`/edges/${value}`)
+        .then(res => res.json())
+        .then(data => {
+          console.log("Fetched graph data for:", value);
+          drawGraph(data);
+        })
+        .catch(err => {
+          console.error("Error fetching edges:", err);
+        });
+    });
+
+    document.getElementById("contact-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = {};
+      formData.forEach((value, key) => data[key] = value);
+
+      fetch("/add_contact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      })
+      .then(res => res.json())
+      .then(response => {
+        alert(response.message || "Contact added!");
+        e.target.reset();
+      })
+      .catch(err => {
+        console.error("Error adding contact:", err);
+        alert("Failed to add contact.");
+      });
+    });
+
+
+    document.getElementById("question-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      const question = document.getElementById("question-input").value.trim();
+      if (!question) return;
+
+      // Show loading text
+      const responseEl = document.getElementById("question-response");
+      responseEl.textContent = "thinking";
+
+      fetch("/ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ question })
+      })
+      .then(res => res.json())
+      .then(data => {
+        responseEl.textContent = data.answer || "No answer returned.";
+      })
+      .catch(err => {
+        console.error("Error asking question:", err);
+        responseEl.textContent = "There was an error processing your question.";
+      });
+    });
+
+
+    fetch("/edges/")
+      .then(res => res.json())
+      .then(data => drawGraph(data));
+  </script>
+</body>
+</html>

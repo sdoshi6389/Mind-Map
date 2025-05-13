@@ -1,0 +1,12 @@
+.env
+college_groups.db
+company_groups.db
+goals_edges.db
+highschool_groups.db
+industry_groups.db
+interests_edges.db
+my_database.db
+previous_companies.db
+skill_edges.db
+test.txt
+contacts.txt
